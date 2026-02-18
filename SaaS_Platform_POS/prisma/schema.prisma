@@ -1,0 +1,539 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ============================================
+// TENANTS & USERS
+// ============================================
+
+model Tenant {
+  id        String   @id @default(uuid())
+  name      String
+  businessType String @map("business_type") // HOTEL, RESTAURANT, RETAIL
+  gstNumber String?  @map("gst_number")
+  address   String?
+  phone     String?
+  email     String?
+  
+  // Configuration
+  inventoryMethod String @default("FIFO") @map("inventory_method") // FIFO or WEIGHTED_AVERAGE
+  currency        String @default("INR")
+  timezone        String @default("Asia/Kolkata")
+  settings        Json?  @default("{}") // Dynamic business settings (KOT enabled, auto-print, etc.)
+  
+  // Status
+  isActive  Boolean  @default(true) @map("is_active")
+  
+  // Timestamps
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+  
+  // Relations
+  users       User[]
+  categories  Category[]
+  items       Item[]
+  inventoryBatches InventoryBatch[]
+  purchases   Purchase[]
+  bills       Bill[]
+  kots        KOT[]
+  printJobs   PrintJob[]
+  auditLogs   AuditLog[]
+  
+  @@map("tenants")
+}
+
+enum UserRole {
+  OWNER
+  MANAGER
+  CASHIER
+  KITCHEN
+}
+
+model User {
+  id       String   @id @default(uuid())
+  tenantId String   @map("tenant_id")
+  
+  username String   @unique
+  password String   // Hashed password
+  email    String
+  name     String
+  phone    String?
+  role     UserRole
+  
+  // Status
+  isActive  Boolean  @default(true) @map("is_active")
+  
+  // Timestamps
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+  
+  // Relations
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  bills     Bill[]
+  kots      KOT[]
+  auditLogs AuditLog[]
+  
+  @@index([tenantId])
+  @@index([username])
+  @@map("users")
+}
+
+// ============================================
+// ITEMS & CATEGORIES
+// ============================================
+
+model Category {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  
+  name        String
+  description String?
+  sortOrder   Int      @default(0) @map("sort_order")
+  
+  // Status
+  isActive    Boolean  @default(true) @map("is_active")
+  
+  // Timestamps
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+  
+  // Relations
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  items       Item[]
+  
+  @@index([tenantId])
+  @@map("categories")
+}
+
+enum ItemType {
+  SIMPLE    // Fixed quantity items
+  WEIGHTED  // Items sold by weight
+}
+
+enum InventoryMode {
+  AUTO      // Auto-deduct inventory on billing
+  MANUAL    // Manual inventory management (infinity quantity)
+}
+
+model Item {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  categoryId  String   @map("category_id")
+  
+  name        String
+  description String?
+  sku         String?
+  itemType    ItemType @default(SIMPLE) @map("item_type")
+  
+  // Pricing
+  price       Decimal  @db.Decimal(10, 2)
+  gstRate     Decimal  @default(0) @map("gst_rate") @db.Decimal(5, 2) // GST percentage
+  
+  // Inventory tracking
+  trackInventory Boolean       @default(true) @map("track_inventory")
+  inventoryMode  InventoryMode @default(AUTO) @map("inventory_mode")
+  unit           String        @default("PCS") // PCS, KG, L, etc.
+  
+  // Status
+  isActive    Boolean  @default(true) @map("is_active")
+  
+  // Timestamps
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+  
+  // Relations
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  category    Category @relation(fields: [categoryId], references: [id])
+  inventoryBatches InventoryBatch[]
+  billItems   BillItem[]
+  kotItems    KOTItem[]
+  purchaseItems PurchaseItem[]
+  
+  @@unique([tenantId, sku])
+  @@index([tenantId])
+  @@index([categoryId])
+  @@map("items")
+}
+
+// ============================================
+// INVENTORY MANAGEMENT
+// ============================================
+
+model InventoryBatch {
+  id              String   @id @default(uuid())
+  tenantId        String   @map("tenant_id")
+  itemId          String   @map("item_id")
+  purchaseId      String?  @map("purchase_id")
+  
+  // Batch details
+  batchNumber     String   @map("batch_number")
+  initialQuantity Decimal  @map("initial_quantity") @db.Decimal(10, 3)
+  currentQuantity Decimal  @map("current_quantity") @db.Decimal(10, 3)
+  costPrice       Decimal  @map("cost_price") @db.Decimal(10, 2)
+  
+  // Dates
+  purchaseDate    DateTime @map("purchase_date")
+  expiryDate      DateTime? @map("expiry_date")
+  
+  // Timestamps
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  
+  // Relations
+  tenant          Tenant   @relation(fields: [tenantId], references: [id])
+  item            Item     @relation(fields: [itemId], references: [id])
+  purchase        Purchase? @relation(fields: [purchaseId], references: [id])
+  billItemBatches BillItemBatch[]
+  
+  @@index([tenantId])
+  @@index([itemId])
+  @@index([purchaseId])
+  @@map("inventory_batches")
+}
+
+// ============================================
+// PURCHASES
+// ============================================
+
+enum PurchaseStatus {
+  DRAFT
+  RECEIVED
+  CANCELLED
+}
+
+model Purchase {
+  id              String         @id @default(uuid())
+  tenantId        String         @map("tenant_id")
+  
+  purchaseNumber  String         @unique @map("purchase_number")
+  supplierName    String?        @map("supplier_name")
+  invoiceNumber   String?        @map("invoice_number")
+  
+  status          PurchaseStatus @default(DRAFT)
+  totalAmount     Decimal        @map("total_amount") @db.Decimal(10, 2)
+  
+  // Dates
+  purchaseDate    DateTime       @map("purchase_date")
+  receivedDate    DateTime?      @map("received_date")
+  
+  notes           String?
+  
+  // Timestamps
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+  deletedAt       DateTime?      @map("deleted_at")
+  
+  // Relations
+  tenant          Tenant         @relation(fields: [tenantId], references: [id])
+  items           PurchaseItem[]
+  inventoryBatches InventoryBatch[]
+  
+  @@index([tenantId])
+  @@map("purchases")
+}
+
+model PurchaseItem {
+  id          String   @id @default(uuid())
+  purchaseId  String   @map("purchase_id")
+  itemId      String   @map("item_id")
+  
+  quantity    Decimal  @db.Decimal(10, 3)
+  costPrice   Decimal  @map("cost_price") @db.Decimal(10, 2)
+  totalCost   Decimal  @map("total_cost") @db.Decimal(10, 2)
+  
+  // Timestamps
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  
+  // Relations
+  purchase    Purchase @relation(fields: [purchaseId], references: [id])
+  item        Item     @relation(fields: [itemId], references: [id])
+  
+  @@index([purchaseId])
+  @@index([itemId])
+  @@map("purchase_items")
+}
+
+// ============================================
+// BILLING
+// ============================================
+
+enum BillStatus {
+  DRAFT
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CASH
+  UPI
+  CARD
+  OTHER
+}
+
+enum OrderType {
+  DINE_IN
+  TAKEAWAY
+  DELIVERY
+}
+
+model Bill {
+  id              String        @id @default(uuid())
+  tenantId        String        @map("tenant_id")
+  userId          String        @map("user_id")
+  kotId           String?       @map("kot_id")
+  
+  billNumber      String        @map("bill_number")
+  
+  // Amounts
+  subtotal        Decimal       @db.Decimal(10, 2)
+  taxAmount       Decimal       @map("tax_amount") @db.Decimal(10, 2)
+  discount        Decimal       @default(0) @db.Decimal(10, 2)
+  totalAmount     Decimal       @map("total_amount") @db.Decimal(10, 2)
+  
+  // Payment
+  paymentMethod   PaymentMethod @map("payment_method")
+  paymentStatus   String        @default("PAID") @map("payment_status")
+  
+  // Order Type
+  orderType       OrderType?    @map("order_type")
+  
+  // Status
+  status          BillStatus    @default(COMPLETED)
+  
+  // Customer info (optional)
+  customerName    String?       @map("customer_name")
+  customerPhone   String?       @map("customer_phone")
+  
+  notes           String?
+  
+  // Timestamps
+  billedAt        DateTime      @default(now()) @map("billed_at")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+  cancelledAt     DateTime?     @map("cancelled_at")
+  
+  // Relations
+  tenant          Tenant        @relation(fields: [tenantId], references: [id])
+  user            User          @relation(fields: [userId], references: [id])
+  kot             KOT?          @relation(fields: [kotId], references: [id])
+  items           BillItem[]
+  printJobs       PrintJob[]
+  
+  @@unique([tenantId, billNumber])
+  @@index([tenantId])
+  @@index([userId])
+  @@index([billNumber])
+  @@map("bills")
+}
+
+model BillItem {
+  id          String   @id @default(uuid())
+  billId      String   @map("bill_id")
+  itemId      String   @map("item_id")
+  
+  quantity    Decimal  @db.Decimal(10, 3)
+  price       Decimal  @db.Decimal(10, 2)
+  gstRate     Decimal  @map("gst_rate") @db.Decimal(5, 2)
+  gstAmount   Decimal  @map("gst_amount") @db.Decimal(10, 2)
+  totalAmount Decimal  @map("total_amount") @db.Decimal(10, 2)
+  
+  // Timestamps
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  
+  // Relations
+  bill        Bill     @relation(fields: [billId], references: [id])
+  item        Item     @relation(fields: [itemId], references: [id])
+  batches     BillItemBatch[]
+  
+  @@index([billId])
+  @@index([itemId])
+  @@map("bill_items")
+}
+
+// Junction table for tracking which inventory batches were used
+model BillItemBatch {
+  id              String         @id @default(uuid())
+  billItemId      String         @map("bill_item_id")
+  batchId         String         @map("batch_id")
+  
+  quantityUsed    Decimal        @map("quantity_used") @db.Decimal(10, 3)
+  costPrice       Decimal        @map("cost_price") @db.Decimal(10, 2)
+  
+  // Timestamps
+  createdAt       DateTime       @default(now()) @map("created_at")
+  
+  // Relations
+  billItem        BillItem       @relation(fields: [billItemId], references: [id])
+  batch           InventoryBatch @relation(fields: [batchId], references: [id])
+  
+  @@index([billItemId])
+  @@index([batchId])
+  @@map("bill_item_batches")
+}
+
+// ============================================
+// KOT (Kitchen Order Ticket)
+// ============================================
+
+enum KOTStatus {
+  PENDING
+  PREPARING
+  READY
+  SERVED
+  BILLED
+  CANCELLED
+}
+
+model KOT {
+  id          String     @id @default(uuid())
+  tenantId    String     @map("tenant_id")
+  userId      String     @map("user_id")
+  
+  kotNumber   String     @unique @map("kot_number")
+  tableNumber String?    @map("table_number")
+  
+  status      KOTStatus  @default(PENDING)
+  
+  notes       String?
+  
+  // Timestamps
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+  billedAt    DateTime?  @map("billed_at")
+  
+  // Relations
+  tenant      Tenant     @relation(fields: [tenantId], references: [id])
+  user        User       @relation(fields: [userId], references: [id])
+  items       KOTItem[]
+  bills       Bill[]
+  printJobs   PrintJob[]
+  
+  @@index([tenantId])
+  @@index([userId])
+  @@map("kots")
+}
+
+model KOTItem {
+  id          String   @id @default(uuid())
+  kotId       String   @map("kot_id")
+  itemId      String   @map("item_id")
+  
+  quantity    Decimal  @db.Decimal(10, 3)
+  notes       String?
+  
+  // Timestamps
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  
+  // Relations
+  kot         KOT      @relation(fields: [kotId], references: [id])
+  item        Item     @relation(fields: [itemId], references: [id])
+  
+  @@index([kotId])
+  @@index([itemId])
+  @@map("kot_items")
+}
+
+// ============================================
+// PRINTING
+// ============================================
+
+enum PrintJobType {
+  BILL
+  KOT
+}
+
+enum PrintJobStatus {
+  PENDING
+  PRINTING
+  COMPLETED
+  FAILED
+}
+
+model PrintJob {
+  id          String         @id @default(uuid())
+  tenantId    String         @map("tenant_id")
+  billId      String?        @map("bill_id")
+  kotId       String?        @map("kot_id")
+  
+  jobType     PrintJobType   @map("job_type")
+  status      PrintJobStatus @default(PENDING)
+  
+  // Print payload (JSON)
+  payload     Json
+  
+  // Retry tracking
+  attempts    Int            @default(0)
+  maxAttempts Int            @default(3) @map("max_attempts")
+  lastError   String?        @map("last_error")
+  
+  // Timestamps
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+  completedAt DateTime?      @map("completed_at")
+  
+  // Relations
+  tenant      Tenant         @relation(fields: [tenantId], references: [id])
+  bill        Bill?          @relation(fields: [billId], references: [id])
+  kot         KOT?           @relation(fields: [kotId], references: [id])
+  
+  @@index([tenantId])
+  @@index([status])
+  @@map("print_jobs")
+}
+
+// ============================================
+// AUDIT LOGS
+// ============================================
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  CANCEL
+  RESTORE
+}
+
+model AuditLog {
+  id          String      @id @default(uuid())
+  tenantId    String      @map("tenant_id")
+  userId      String      @map("user_id")
+  
+  action      AuditAction
+  entity      String      // Table/model name
+  entityId    String      @map("entity_id")
+  
+  // Change tracking
+  beforeData  Json?       @map("before_data")
+  afterData   Json?       @map("after_data")
+  
+  ipAddress   String?     @map("ip_address")
+  userAgent   String?     @map("user_agent")
+  
+  // Timestamps
+  createdAt   DateTime    @default(now()) @map("created_at")
+  
+  // Relations
+  tenant      Tenant      @relation(fields: [tenantId], references: [id])
+  user        User        @relation(fields: [userId], references: [id])
+  
+  @@index([tenantId])
+  @@index([userId])
+  @@index([entity, entityId])
+  @@map("audit_logs")
+}

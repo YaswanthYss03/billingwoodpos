@@ -1,0 +1,38 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "declaration": true,
+    "removeComments": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "allowSyntheticDefaultImports": true,
+    "target": "ES2021",
+    "sourceMap": true,
+    "outDir": "./dist",
+    "baseUrl": "./",
+    "incremental": true,
+    "skipLibCheck": true,
+    "strictNullChecks": true,
+    "noImplicitAny": true,
+    "strictBindCallApply": true,
+    "forceConsistentCasingInFileNames": true,
+    "noFallthroughCasesInSwitch": true,
+    "paths": {
+      "@/*": ["src/*"],
+      "@common/*": ["src/common/*"],
+      "@auth/*": ["src/auth/*"],
+      "@tenants/*": ["src/tenants/*"],
+      "@users/*": ["src/users/*"],
+      "@items/*": ["src/items/*"],
+      "@inventory/*": ["src/inventory/*"],
+      "@purchases/*": ["src/purchases/*"],
+      "@billing/*": ["src/billing/*"],
+      "@kot/*": ["src/kot/*"],
+      "@printing/*": ["src/printing/*"],
+      "@reports/*": ["src/reports/*"],
+      "@audit/*": ["src/audit/*"]
+    }
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "test"]
+}
