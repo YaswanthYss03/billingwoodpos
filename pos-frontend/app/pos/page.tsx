@@ -599,8 +599,8 @@ export default function POSPage() {
                   >
                     <CardContent className="p-4">
                       {isLowStock && (
-                        <div className="absolute top-2 right-2">
-                          <AlertTriangle className="h-4 w-4 text-orange-500" title="Low stock" />
+                        <div className="absolute top-2 right-2" title="Low stock">
+                          <AlertTriangle className="h-4 w-4 text-orange-500" />
                         </div>
                       )}
                       {isOutOfStock && (
