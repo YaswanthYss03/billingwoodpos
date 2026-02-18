@@ -119,6 +119,8 @@ export default function POSPage() {
         price: kotItem.item.price,
         quantity: kotItem.quantity,
         gstRate: kotItem.item.gstRate,
+        trackInventory: kotItem.item.trackInventory ?? false,
+        inventoryMode: kotItem.item.inventoryMode || 'MANUAL',
       }));
       
       setCart(cartItems);
@@ -168,7 +170,14 @@ export default function POSPage() {
   const loadDraftOrder = (draftId: number) => {
     const draft = draftOrders.find(d => d.id === draftId);
     if (draft) {
-      setCart(draft.cart);
+      // Ensure all cart items have required properties (backward compatibility)
+      const cartWithDefaults = draft.cart.map((item: CartItem) => ({
+        ...item,
+        trackInventory: item.trackInventory ?? false,
+        inventoryMode: item.inventoryMode || 'MANUAL',
+      }));
+      
+      setCart(cartWithDefaults);
       setCustomerName(draft.customerName || '');
       setCustomerPhone(draft.customerPhone || '');
       setPaymentMethod(draft.paymentMethod || 'CASH');
