@@ -9,10 +9,38 @@ async function bootstrap() {
   // Global prefix
   app.setGlobalPrefix(process.env.API_PREFIX || 'api/v1');
 
-  // CORS
+  // CORS Configuration - Production Ready
+  const allowedOrigins = process.env.CORS_ORIGIN?.split(',').map(origin => origin.trim()) || [];
+  
   app.enableCors({
-    origin: process.env.CORS_ORIGIN?.split(',') || '*',
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps, Postman, curl)
+      if (!origin) return callback(null, true);
+      
+      // In development, allow all localhost origins
+      if (process.env.NODE_ENV !== 'production') {
+        if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
+          return callback(null, true);
+        }
+      }
+      
+      // Check if origin is in allowed list
+      if (allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
+        return callback(null, true);
+      }
+      
+      // Allow Vercel preview deployments
+      if (origin.includes('.vercel.app')) {
+        return callback(null, true);
+      }
+      
+      callback(new Error(`CORS: Origin ${origin} not allowed`));
+    },
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    exposedHeaders: ['Content-Range', 'X-Content-Range'],
+    maxAge: 3600, // Cache preflight requests for 1 hour
   });
 
   // Global validation pipe
